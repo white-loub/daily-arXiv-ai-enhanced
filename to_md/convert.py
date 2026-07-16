@@ -1,7 +1,29 @@
 import json
 import argparse
 import os
+import sys
 from itertools import count
+from pathlib import Path
+
+REQUIRED_AI_FIELDS = (
+    "tldr",
+    "motivation",
+    "method",
+    "result",
+    "conclusion",
+)
+
+
+def has_complete_ai(item):
+    ai_data = item.get("AI")
+    if not isinstance(ai_data, dict):
+        return False
+    return all(
+        isinstance(ai_data.get(field), str)
+        and ai_data[field].strip()
+        and ai_data[field] != "Error"
+        for field in REQUIRED_AI_FIELDS
+    )
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -20,8 +42,22 @@ if __name__ == "__main__":
         for line in f:
             data.append(json.loads(line))
 
+    valid_data = []
+    for item in data:
+        if has_complete_ai(item):
+            valid_data.append(item)
+        else:
+            print(
+                f"Skipping item {item.get('id', 'unknown')}: incomplete AI data",
+                file=sys.stderr,
+            )
+
+    if data and not valid_data:
+        raise RuntimeError("No papers contain complete AI enhancement data")
+    data = valid_data
+
     categories = set([item["categories"][0] for item in data])
-    template = open("paper_template.md", "r").read()
+    template = (Path(__file__).resolve().parent / "paper_template.md").read_text()
     categories = sorted(categories, key=rank)
     cnt = {cate: 0 for cate in categories}
     for item in data:
@@ -55,5 +91,7 @@ if __name__ == "__main__":
                 for item in data if item["categories"][0] == cate
             ]
         )
-    with open(args.data.split('_')[0] + '.md', "w") as f:
+    data_path = Path(args.data)
+    output_path = data_path.with_name(data_path.name.split('_', 1)[0] + '.md')
+    with output_path.open("w") as f:
         f.write(markdown)
